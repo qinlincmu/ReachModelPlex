@@ -31,11 +31,11 @@ try:
     import flowstar
     import constant
     import modelplex
-    import tubempc
+    import tubempcCVX
 except:
     raise
 
-MAX_TIME = 5.0  # max simulation time
+MAX_TIME = 5  # max simulation time
 
 DT = 0.1  # [s] time tick
 
@@ -141,7 +141,7 @@ def update_state_ffast(state, vc, delta):
     """
         Function: state update based on dynamic bicycle model used in ffast
         Input: state and control action
-        Output: return updated state 
+        Output: return updated state
     """
 
     Model_class = vehicle_model.load_model("RC_Car")
@@ -454,8 +454,9 @@ def sample_control(monitor, state, proposed_action, waypoint, curr, next, time, 
     dis = 1000
     print("sampling runtime: %5.2f ms\n" %dt)
     if len(pos_action) == 0:
-        print('clock: %5.2f warning!!!!!!!!! No possible fallback exists\n' %(clock))
-        return proposed_action, predict_state(state, proposed_action[0], proposed_action[1], "list"), [], [], []
+        print('clock: %5.2f warning!!!!!!!!! No fallback\n' %(clock))
+        ps = predict_state(state, proposed_action[0], proposed_action[1], "list")
+        return proposed_action, ps, [ps[0]], [ps[1]], [ps[3]]
     else:
         print("clock: %5.2f found %d recovery states\n" %(clock, len(pos_action)))
     for i in range(len(pos_action)):
@@ -651,6 +652,7 @@ def do_simulation(initial_state):
     state_buffer = []
     control_buffer = []
     cnt = 0
+    
     while MAX_TIME >= clock:
 
         current_state_timestamp = clock
@@ -822,35 +824,71 @@ def do_simulation(initial_state):
                 state_buffer.append(op_state)
 
                 bk_state = state_buffer[-1]
+                bk_control = control_buffer[-1]
                 tgt_state = predict_state(bk_state, state_buffer[-1][0], state_buffer[-1][1], "list")
                 tgt_x = tgt_state[0]
                 tgt_y = tgt_state[1]
                 tgt_v = np.sqrt(tgt_state[4]**2+tgt_state[5]**2)
                 tgt_yaw = tgt_state[3]
-
-                X_int = np.array(
-                        [
-                            [state.x],
-                            [state.y],
-                            [state.v],
-                            [state.yaw]
-                          ]
-                     )
-                X_ref = np.zeros((2, 4, 1))
-                X_ref[0,0,0] = tgt_x
-                X_ref[0,1,0] = tgt_y
-                X_ref[0,2,0] = tgt_v
-                X_ref[0,3,0] = tgt_yaw
-
-                X_ref[1,0,0] = tgt_x
-                X_ref[1,1,0] = tgt_y
-                X_ref[1,2,0] = tgt_v
-                X_ref[1,3,0] = tgt_yaw
                 start = datetime.datetime.now()
-                mpc_a, mpc_d = tubempc.mpc(X_int, X_ref)
-                proposed_action[0] = state.v+mpc_a
-                proposed_action[1] = mpc_d
-                print("clock: %5.2f,  mpc control!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! (acc: %5.2f, angle: %5.2f)" %(clock, mpc_a, mpc_d))
+
+
+                # code for new mpc
+                odelta, oa = None, None
+                X_int = [state.x, state.y, state.v, state.yaw]
+                X_ref = np.zeros((4, 2))
+
+                dref = np.zeros((1, 2))
+
+                X_ref[0,0] = tgt_x
+                X_ref[1,0] = tgt_y
+                X_ref[2,0] = tgt_v
+                X_ref[3,0] = tgt_yaw
+
+                X_ref[0,1] = tgt_x
+                X_ref[1,1] = tgt_y
+                X_ref[2,1] = tgt_v
+                X_ref[3,1] = tgt_yaw
+
+                dref[0,0] = 0 #steering angle
+                dref[0,1] = 0
+                print("ref", X_ref, X_int, dref)
+                oa, odelta, ox, oy, oyaw, ov = tubempcCVX.mpc(
+                                            X_ref, X_int, dref, oa, odelta)
+                print("odelta size", X_ref.shape, dref.shape)#, odelta.shape)
+                if odelta is not None:
+                    di, ai = odelta[0], oa[0]
+                #####################
+                
+                ############### for old tube mpc 
+                # X_int = np.array(
+                #         [
+                #             [state.x],
+                #             [state.y],
+                #             [state.v],
+                #             [state.yaw]
+                #           ]
+                #      )
+                # X_ref = np.zeros((2, 4, 1))
+                # X_ref[0,0,0] = tgt_x
+                # X_ref[0,1,0] = tgt_y
+                # X_ref[0,2,0] = tgt_v
+                # X_ref[0,3,0] = tgt_yaw
+
+                # X_ref[1,0,0] = tgt_x
+                # X_ref[1,1,0] = tgt_y
+                # X_ref[1,2,0] = tgt_v
+                # X_ref[1,3,0] = tgt_yaw
+                # ai, di = tubempc.mpc(X_int, X_ref)
+                # print("int-ref", X_int, X_ref)
+                ########################
+
+                
+                
+                proposed_action[0] = state.v+ai
+                proposed_action[1] = di
+
+                print("clock: %5.2f,  mpc control!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! (acc: %5.2f, angle: %5.2f)" %(clock, proposed_action[0], proposed_action[1]))
                 end = datetime.datetime.now()
                 dt = (end-start).total_seconds()*1000
                 print("Tube MPC runtime %5.2f" %dt)
@@ -962,7 +1000,7 @@ def main():
 
     #print(yaw)
     #print(y)
-    plt.show()
+    #plt.show()
 
 
 
