@@ -84,3 +84,6 @@ The double-side red track is the safety boudary used by reachability analysis. A
     
     -16: invalid steering (steering not in direction of goal)
     
+## extension to real robot systems (e.g. ROS)
+Vehicle's state and waypoints need to retrive from ros topics. The relaxed boudary for reachability can be road curb from perception layer. Users can modify the intersection of reachable set and unsafe set if needed.
+    
