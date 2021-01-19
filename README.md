@@ -21,7 +21,7 @@ Project of integrating reachability and ModelPlex Monitor
 
 ## set up reachability tool
     - put "flowstar" file and model file (nonlinear_without_beta) file in the same level of directory
-    2.2. install gcc-8 and g++-8, so far flow* only works with at least version-8 compilers
+    ### install gcc-8 and g++-8, so far flow* only works with at least version-8 compilers
     2.3. install latest m4, gmp, mpfr, gsl, glpk, bison, and flex. (one possible issue in Ubuntu 18, please install flex 2.6.3 instaed of 2.6.4)
     2.4. type "make" in the flowstar file, then type "sudo ldconfig"
     2.5. type "make" in the model file, if everything goes well, you'll find an executable RC_bicycle program
