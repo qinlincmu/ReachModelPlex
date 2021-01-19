@@ -47,4 +47,10 @@ Project of integrating reachability and ModelPlex Monitor
             verification: verify reachability's safety (intersection between reachable set and unsafe set)
             visualize: visulization functions
             
+5. demo explaination:
+    the demo is done in the rounded-square mode of aa_planner (see below). The starting point is the bottom left point. The eight waypoints defined in the global     frame are (0, 0), (1, 0), (2, 1), (2, 2), (1, 3), (0, 3), (-1, 2), (-1, 1)
     
+       *   *
+    *         *   
+    *         *
+       *   * 
