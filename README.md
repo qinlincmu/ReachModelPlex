@@ -48,8 +48,9 @@ Project of integrating reachability and ModelPlex Monitor
             visualize: visulization functions
             
 ## demo explaination:
-    the demo is done in the rounded-square mode of aa_planner (see below). The starting point is the bottom left point. The eight waypoints defined in the global     frame are (0, 0), (1, 0), (2, 1), (2, 2), (1, 3), (0, 3), (-1, 2), (-1, 1). https://youtu.be/VmE23Y745GI
-    The double-side red track is the safety boudary used by reachability analysis. Any intersection of the reachable set (green boxes) and the red line will be       predicted as dangerous, when fallback controller will be called. Note that in the video, the green box turns into red is not because of real collision, but       just having risk if we still insist apply our current bad control. The reachabilty verdict value is from the result of reachability analysis (positive means       safe, negative means unsafe). Same for the modelplex value. ModelPlex also outputs verdict ID. The detailed explanation of the ID is:
+The demo is done in the rounded-square mode of aa_planner (see below). The starting point is the bottom left point. The eight waypoints defined in the global     frame are (0, 0), (1, 0), (2, 1), (2, 2), (1, 3), (0, 3), (-1, 2), (-1, 1). https://youtu.be/VmE23Y745GI
+
+The double-side red track is the safety boudary used by reachability analysis. Any intersection of the reachable set (green boxes) and the red line will be       predicted as dangerous, when fallback controller will be called. Note that in the video, the green box turns into red is not because of real collision, but       just having risk if we still insist apply our current bad control. The reachabilty verdict value is from the result of reachability analysis (positive means       safe, negative means unsafe). Same for the modelplex value. ModelPlex also outputs verdict ID. The detailed explanation of the ID is:
     
     -1: failed to reset time
     
