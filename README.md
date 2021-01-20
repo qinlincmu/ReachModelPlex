@@ -5,7 +5,7 @@ Project of integrating reachability and ModelPlex Monitor
 
     matplotlib==3.0.3
 
-    numpy==1.18.2
+    numpy==1.15.4
 
     scipy==1.4.1
 
@@ -17,7 +17,7 @@ Project of integrating reachability and ModelPlex Monitor
 
     pycddlib==2.1.2
 
-    cvxpy==1.1.5
+    cvxpy==1.1.7
 
 ## set up reachability tool
     - put "flowstar" file and model file (nonlinear_without_beta) file in the same level of directory
