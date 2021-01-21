@@ -624,42 +624,42 @@ def minkowski_sum(P, Q):
   return P_plus_Q
 
 
-import gurobipy as gp
-from gurobipy import GRB
+# import gurobipy as gp
+# from gurobipy import GRB
 import time
-def pontryagin_difference(P, Q):
-  # Pontryagin difference for two convex polytopes P and Q:
-  # P - Q = {x in R^n : x + q in P, for all q in Q}
-  # In halfspace representation, this is [P.A, P.b - Q.support(P.A)], with
-  # Q.support(P.A) a matrix in which row i is the support of Q at row i of P.A.
-  if P.n != Q.n:
-    raise ValueError(f'Pontryagin difference of polytopes of different '
-                     f'dimensions ({P.n} and {Q.n}) not allowed')
-  m = P.A.shape[0]
-  pdiff_b = np.full(m, np.nan)  # b vector in the Pontryagin difference P - Q
-  # For each inequality i in P: subtract the support of Q in the direction P.A_i
-  model = gp.Model("mip1")
-  model.setParam('OutputFlag', False)
-  x = np.array([model.addVar(name="x"+str(i), vtype=GRB.CONTINUOUS, lb=-GRB.INFINITY, ub=GRB.INFINITY) for i in range(P.A.shape[1])])
-  for t in range(Q.A.shape[0]):
-    model.addConstr(Q.A[t].dot(x) <= Q.b[t])
-  for ineq in range(m):
-    model.setObjective(P.A[ineq].dot(x), GRB.MAXIMIZE)
-    model.optimize()  
+# def pontryagin_difference(P, Q):
+#   # Pontryagin difference for two convex polytopes P and Q:
+#   # P - Q = {x in R^n : x + q in P, for all q in Q}
+#   # In halfspace representation, this is [P.A, P.b - Q.support(P.A)], with
+#   # Q.support(P.A) a matrix in which row i is the support of Q at row i of P.A.
+#   if P.n != Q.n:
+#     raise ValueError(f'Pontryagin difference of polytopes of different '
+#                      f'dimensions ({P.n} and {Q.n}) not allowed')
+#   m = P.A.shape[0]
+#   pdiff_b = np.full(m, np.nan)  # b vector in the Pontryagin difference P - Q
+#   # For each inequality i in P: subtract the support of Q in the direction P.A_i
+#   model = gp.Model("mip1")
+#   model.setParam('OutputFlag', False)
+#   x = np.array([model.addVar(name="x"+str(i), vtype=GRB.CONTINUOUS, lb=-GRB.INFINITY, ub=GRB.INFINITY) for i in range(P.A.shape[1])])
+#   for t in range(Q.A.shape[0]):
+#     model.addConstr(Q.A[t].dot(x) <= Q.b[t])
+#   for ineq in range(m):
+#     model.setObjective(P.A[ineq].dot(x), GRB.MAXIMIZE)
+#     model.optimize()  
 
-    value = 0
-    if model.status == GRB.OPTIMAL:
-    	value = sum(P.A[ineq][i] * x[i].X for i in range(P.A.shape[1]))
-    else:
-    	print('here')
+#     value = 0
+#     if model.status == GRB.OPTIMAL:
+#     	value = sum(P.A[ineq][i] * x[i].X for i in range(P.A.shape[1]))
+#     else:
+#     	print('here')
 
-    pdiff_b[ineq] = P.b[ineq] - value  # TODO: error check [1]
+#     pdiff_b[ineq] = P.b[ineq] - value  # TODO: error check [1]
 
-    # pdiff_b[ineq] = P.b[ineq] - Q.support(P.A[ineq])[0]  # TODO: error check [1]
-  # Determine which inequalities are redundant, if any:
-  redundant = redundant_inequalities(P.A, pdiff_b)
-  pdiff = Polytope(P.A[~redundant], pdiff_b[~redundant])  # minimal H-rep
-  return pdiff
+#     # pdiff_b[ineq] = P.b[ineq] - Q.support(P.A[ineq])[0]  # TODO: error check [1]
+#   # Determine which inequalities are redundant, if any:
+#   redundant = redundant_inequalities(P.A, pdiff_b)
+#   pdiff = Polytope(P.A[~redundant], pdiff_b[~redundant])  # minimal H-rep
+#   return pdiff
 
 
 def scale(P, s):
