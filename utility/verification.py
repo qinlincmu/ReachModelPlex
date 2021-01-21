@@ -163,7 +163,29 @@ def sampling_dubin_path(initial, target, r, dt):
             dy = y[i]-y[i-1]
             yaw.append(math.atan2(dy, dx))
     return x, y, yaw
-
+def get_closet_ref(x, y, yaw, current_waypoint):
+    dict_waypont = {
+        (1, 0, 0): (0, 0, 0, 0),
+        (2, 1, 1): (1, 0, 0, np.pi/2),
+        (2, 2, 0): (2, 1, np.pi/2, np.pi/2),
+        (1, 3, 1): (2, 2, np.pi/2, np.pi),
+        (0, 3, 0): (1, 3, np.pi, np.pi),
+        (-1, 2, 1): (0, 3, -np.pi, -np.pi/2),
+        (-1, 1, 0): (-1, 2, -np.pi/2, -np.pi/2),
+        (0, 0, 1): (-1, 1, -np.pi/2, 0)}
+    yaw0 =  dict_waypont[current_waypoint][2]
+    yaw1 =  dict_waypont[current_waypoint][3]
+    target = ((current_waypoint[0], current_waypoint[1], yaw1))
+    initial = (dict_waypont[current_waypoint][0], dict_waypont[current_waypoint][1],yaw0)
+    x_r, y_r, yaw_r = sampling_dubin_path(initial, target, 1, 0.1)
+    d_min = 100
+    ind = 0
+    for i in range(len(x_r)):
+        dis = np.sqrt((x-x_r[i])**2+(y-y_r[i])**2)
+        if  dis <= d_min:
+            d_min = dis
+            ind = i
+    return x_r[ind], y_r[ind], yaw_r[ind]
 if __name__ == '__main__':
 
     dict_waypont = {

@@ -1,3 +1,4 @@
+#!/sur/bin/env python3
 """
 
 simulator for AA project
@@ -35,18 +36,19 @@ try:
 except:
     raise
 
-MAX_TIME = 5  # max simulation time
-
-DT = 0.1  # [s] time tick
-
-
+MAX_TIME = 3.5  # max simulation time
 
 save_gif = True
 
-
 vehicle_type = 'RC_Car'
-flowstar_stepsize = 0.1
 
+DT = constant.DT
+ODE = constant.ODE
+flowstar_stepsize = constant.flowstar_stepsize
+horizon = constant.horizon
+horizon_b = constant.horizon_b
+inject_bad_control = constant.inject_bad_control
+fallback = constant.fallback
 
 class State:
     """
@@ -235,7 +237,7 @@ def update_state_linear_tire(state, v_cmd, delta):
 
         vy_dot = state.vy*a22+state.yaw_dot*a24+delta*b2
         yaw_dotdot = state.vy*a42+state.yaw_dot*a44+delta*b4
-
+        #print("linear tire parameters", a22, a24, a42, a44, b2, b4)
     state.vx = v_cmd
 
     beta = math.atan2(state.vy, state.vx)
@@ -407,8 +409,7 @@ def plot(t, wp_x, wp_y, wp_k, state, clock, di, current_state, veri_para, x_segs
     # ax7 = fig.add_subplot(428)
     # ax7.set_title("yg")
     # ax7.plot(t, yg_list, "xr")
-def sample_control(monitor, state, proposed_action, waypoint, curr, next, time, plantParamsNext, params, plantnext, post_pre, clock):
-    
+def sample_control(monitor, current_state, state_rec, proposed_action, waypoint, curr, next, time, plantParamsNext, params, plantnext, post_pre, clock, option):
     delta_s = 0.3
     v_s = 0.0
     v_i = proposed_action[0] #not sample on velocity
@@ -417,6 +418,9 @@ def sample_control(monitor, state, proposed_action, waypoint, curr, next, time, 
     pos_x = []
     pos_y = []
     pos_yaw = []
+    vx = []
+    vy = []
+    yawdot = []
 
     if v_s == 0:
         v_container = [proposed_action[0]]
@@ -425,11 +429,11 @@ def sample_control(monitor, state, proposed_action, waypoint, curr, next, time, 
     start = datetime.datetime.now()
     for delta_i in arange(proposed_action[1]-delta_s, proposed_action[1]+delta_s, 0.01):
         for v_i in v_container:
-            next_state = predict_state(state, v_i, delta_i, "list")
+            next_state = predict_state(state_rec, v_i, delta_i, "list")
             next_waypoint = [waypoint[0], waypoint[1], compute_curvature(delta_i)]
             
 
-            next = modelplex.currConvert(next, curr, state, next_waypoint, time)
+            next = modelplex.currConvert(next, curr, state_rec, next_waypoint, time)
             plantParamsNext = modelplex.plantParamsConvert(plantParamsNext, params, next)
             plantnext = modelplex.plantcurrConvert(plantnext, curr, next)
             post_pre = modelplex.postConvert(post_pre, next, [v_i, delta_i])
@@ -441,7 +445,7 @@ def sample_control(monitor, state, proposed_action, waypoint, curr, next, time, 
             if float(ctrl_verdict_value) > 0:
                 ctrl_verdict_value = 1.0 #for better visualization
             else:
-                ctrl_verdict_value, ctrl_verdict_id = check_verdict(state[0], state[1], waypoint[0], waypoint[1], ctrl_verdict_value, ctrl_verdict_id, clock)
+                ctrl_verdict_value, ctrl_verdict_id = check_verdict(state_rec[0], state_rec[1], waypoint[0], waypoint[1], ctrl_verdict_value, ctrl_verdict_id, clock)
 
             if ctrl_verdict_value >0:
                 pos_action.append([v_i, delta_i])
@@ -449,14 +453,18 @@ def sample_control(monitor, state, proposed_action, waypoint, curr, next, time, 
                 pos_x.append(next_state[0])
                 pos_y.append(next_state[1])
                 pos_yaw.append(next_state[3])
+                vx.append(next_state[3])
+                vy.append(next_state[4])
+                yawdot.append(next_state[5])
     end = datetime.datetime.now()
     dt = (end-start).total_seconds()*1000
     dis = 1000
     print("sampling runtime: %5.2f ms\n" %dt)
     if len(pos_action) == 0:
-        print('clock: %5.2f warning!!!!!!!!! No fallback\n' %(clock))
-        ps = predict_state(state, proposed_action[0], proposed_action[1], "list")
-        return proposed_action, ps, [ps[0]], [ps[1]], [ps[3]]
+        print('clock: %5.2f warning! No fallback \n' %(clock))
+        x_r, y_r, yaw_r = verification.get_closet_ref(current_state[0], current_state[1], current_state[3], tuple(waypoint))
+        print(current_state, x_r, y_r, yaw_r)
+        return proposed_action, [x_r, y_r, 0, yaw_r, current_state[4], current_state[5], current_state[6]], x_r, y_r, yaw_r
     else:
         print("clock: %5.2f found %d recovery states\n" %(clock, len(pos_action)))
     for i in range(len(pos_action)):
@@ -472,7 +480,15 @@ def sample_control(monitor, state, proposed_action, waypoint, curr, next, time, 
     ax.set_zlabel('yaw')
     ax.set_title("Recovery states sampled from ModelPlex monitor")
 
-    fig.savefig(str(clock)+'.png')
+    #fig.savefig(str(clock)+'.png') #save figure for recovery states
+    if option == "robust":
+        mid_x = 0.5*(max(pos_x)+min(pos_x))
+        mid_y = 0.5*(max(pos_y)+min(pos_y))
+        mid_yaw = 0.5*(max(pos_yaw)+min(pos_yaw))
+        mid_vx = 0.5*(max(vx)+min(vx))
+        mid_vy = 0.5*(max(vy)+min(vy))
+        mid_yawdot = 0.5*(max(yawdot)+min(yawdot))
+        return pos_action[ind], [mid_x, mid_y, 0, mid_yaw, mid_vx, mid_vy, mid_yawdot], mid_yaw, mid_y, mid_yaw
     return pos_action[ind], pos_state[ind], pos_x, pos_y, pos_yaw
 def check_verdict(x, y, waypoint_x, waypoint_y, value, id, clock):
     """
@@ -494,7 +510,6 @@ def do_simulation(initial_state):
     Model_class = vehicle_model.load_model("RC_Car")
     vehicle = Model_class()
     state = initial_state
-    ODE = "nonlinear_without_beta" #"nonlinear_without_beta", "linear", "nonlinear_with_beta", "linear_tire"
     uncertainty_estimation_method  = 'gp' #option['gp', 'sampling']SUE-GP and sampling distribution approach
     mode = "rounded_square" #["straight", "circle", "rounded_square"],
     clock = 0.0
@@ -578,14 +593,12 @@ def do_simulation(initial_state):
     next = ffi.new("struct state*") #future state from prediction
     post = ffi.new("struct state*") #future state for keymera approach
     post_pre = ffi.new("struct state*") #future state for keymera approach adding model-based prediction of state
-    #post_sim = ffi.new("struct state*") #future state for keymera approach
 
 
     last_state_timestamp = 1
     ifplot = False #False
     total_t = 0 #total running time, what unit?
     counter = 0 #interation number
-    horizon = 1 #feature step in integer
     max_t = 0   #max runtime in each iteration
     min_t = 100 #min runtime in each iteration
     vr_reach = 0
@@ -670,8 +683,6 @@ def do_simulation(initial_state):
         data_f.write(str(proposed_action[0])+" "+str(proposed_action[1]))
         data_f.write("\n")
         #####################modelplex verification#################
-        #pre = curr
-
         pre.a = float(curr.a)
         pre.k = float(curr.k)
         pre.t = float(curr.t)
@@ -698,9 +709,10 @@ def do_simulation(initial_state):
         
 
         ########################simulation of bad control
-        inject_bad_control = True
         if inject_bad_control == True:
-            bad_ctr_sequence = [[0.7, -0.7], [0.7, -0.7], [0.7, -0.7]]
+            #bad_ctr_sequence = [[0.7, -0.7], [0.7, -0.7], [0.7, -0.7]] #for kinematic model reachability experiment, DT=0.1
+            bad_ctr_sequence = [[0.7, -0.7] for i in range(6)] #for kinematic model reachability experiment, DT=0.05
+            #bad_ctr_sequence = [[0.7, -0.7] for i in range(15)] #for dynamic model reachability experiment, DT=0.02
             if(state.x > 1.0 and cnt < len(bad_ctr_sequence)):
                 proposed_action[0] = bad_ctr_sequence[cnt][0]
                 proposed_action[1] = bad_ctr_sequence[cnt][1]
@@ -709,7 +721,7 @@ def do_simulation(initial_state):
                 print("x-y position: (%5.2f, %5.2f); waypoint: (%5.2f, %5.2f)\n" %(current_state[0], current_state[1], current_waypoint[0], current_waypoint[1]))
                 cnt += 1
         ################################
-        #next_state = predict_state(state, proposed_action[0], proposed_action[1], "class")
+        #next_state = predict_state(state, proposed_action[0], proposed_action[1], "class") # do we need to predict the next state based on steering angle?
         next_state = current_state
         #next_waypoint = current_waypoint #less sensitive to bad steering
         next_waypoint = [waypoint[0], waypoint[1], compute_curvature(proposed_action[1])] #modify the waypoint's curvature, more sensitive to bad steering
@@ -751,9 +763,9 @@ def do_simulation(initial_state):
         uncertainty_state = [0.01, 0.01, 0, 0.01, 0.01, 0.01, 0.01] #(x, y, z, yaw, vx, vy, yaw_dot)
         start = datetime.datetime.now()
         
-        x_bound, y_bound, yaw_bound, vx_bound, vy_bound, yawdot_bound = flowstar.execute_flowstar(vehicle_type, ODE, horizon, current_state,
-                          proposed_action, waypoint[0], waypoint[1], uncertainty_state, uncertainty_control, flowstar_stepsize, vehicle.L, vehicle.width)
-
+        x_bound, y_bound, yaw_bound, vx_bound, vy_bound, yawdot_bound = flowstar.execute_flowstar(DT, vehicle_type, ODE, horizon, current_state,
+                          proposed_action, waypoint[0], waypoint[1], uncertainty_state, uncertainty_control, flowstar_stepsize, vehicle.L, vehicle.width, full_brake=False)
+        
         #####apply full brake
         last2_state_x = 0.5*(x_bound[-1][0]+x_bound[-1][1])
         last2_state_y = 0.5*(y_bound[-1][0]+y_bound[-1][1])
@@ -770,11 +782,10 @@ def do_simulation(initial_state):
         last2_state_vy_uc = 0.5*np.abs(vy_bound[-1][1]-vy_bound[-1][0])
         last2_state_yawdot_uc = 0.5*np.abs(yawdot_bound[-1][1]-yawdot_bound[-1][0])
         last2_state_uc = [last2_state_x_uc, last2_state_y_uc, [], last2_state_yaw_uc, last2_state_vx_uc, last2_state_vy_uc, last2_state_yawdot_uc]
-        last_proposed_action = [proposed_action[0]/2, 0]#[proposed_action[0]/2, 0] #TODO, minimum instaneously deceleration?
+        last_proposed_action = [proposed_action[0], 0]
         uncertainty_control = [0.01, 0.01]
-
-        x_bound_last, y_bound_last, yaw_bound_last, vx_bound_last, vy_bound_last, yawdot_bound_last = flowstar.execute_flowstar(vehicle_type, ODE, horizon, last2_state,
-                          last_proposed_action, waypoint[0], waypoint[1], last2_state_uc, uncertainty_control, flowstar_stepsize, vehicle.L, vehicle.width)
+        x_bound_last, y_bound_last, yaw_bound_last, vx_bound_last, vy_bound_last, yawdot_bound_last = flowstar.execute_flowstar(DT, vehicle_type, ODE, horizon_b, last2_state,
+                          last_proposed_action, waypoint[0], waypoint[1], last2_state_uc, uncertainty_control, flowstar_stepsize, vehicle.L, vehicle.width, full_brake=True)
         end = datetime.datetime.now()
         dt = (end-start).total_seconds()*1000
         #print("Reachability runtime %5.2f" %dt)
@@ -803,23 +814,22 @@ def do_simulation(initial_state):
         else:
             reach_verdict_value = 1
         
-        pc = 0.01
         rec_x, rec_y, rec_yaw = [], [], []
         if ctrl_verdict_value < 0 or plant_verdict_value <0:
             print("DETECT: x-y (%5.2f, %5.2f), waypoint (%5.2f, %5.2f)" %(state.x, state.y, current_waypoint[0], current_waypoint[1]))
             print ("clock: %5.2f, reach verdict %d, control (%5.2f, %d),  plant (%5.2f, %d)\n" %(clock, reach_verdict_value, ctrl_verdict_value, ctrl_verdict_id, plant_verdict_value, plant_verdict_id))
-        fallback = True
         if fallback == True:
+            option = "robust"#"nonrobust"#"robust"#
             if pre_ctrl_verdict_value > 0 and ctrl_verdict_value < 0: #modelPlex violation just starts
-                op_control, op_state, rec_x, rec_y, rec_yaw = sample_control(monitor, current_state, prev_action, current_waypoint, curr, next, time, plantParamsNext, params, plantnext, post_pre, clock)
+                op_control, op_state, rec_x, rec_y, rec_yaw = sample_control(monitor, current_state, current_state, prev_action, current_waypoint, curr, next, time, plantParamsNext, params, plantnext, post_pre, clock, option)
                 control_buffer.append(op_control)
                 state_buffer.append(op_state)
             if pre_ctrl_verdict_value<0 and ctrl_verdict_value < 0 and reach_verdict_value>0: #small modelPlex violation continues
-                op_control, op_state, rec_x, rec_y, rec_yaw = sample_control(monitor, state_buffer[-1], control_buffer[-1], current_waypoint, curr, next, time, plantParamsNext, params, plantnext, post_pre, clock)
+                op_control, op_state, rec_x, rec_y, rec_yaw = sample_control(monitor, current_state, state_buffer[-1], control_buffer[-1], current_waypoint, curr, next, time, plantParamsNext, params, plantnext, post_pre, clock, option)
                 control_buffer.append(op_control)
                 state_buffer.append(op_state)
             if ctrl_verdict_value < 0 and reach_verdict_value<0: #large modelPlex violation
-                op_control, op_state, rec_x, rec_y, rec_yaw = sample_control(monitor, state_buffer[-1], control_buffer[-1], current_waypoint, curr, next, time, plantParamsNext, params, plantnext, post_pre, clock)
+                op_control, op_state, rec_x, rec_y, rec_yaw = sample_control(monitor, current_state, state_buffer[-1], control_buffer[-1], current_waypoint, curr, next, time, plantParamsNext, params, plantnext, post_pre, clock, option)
                 control_buffer.append(op_control)
                 state_buffer.append(op_state)
 
@@ -828,7 +838,7 @@ def do_simulation(initial_state):
                 tgt_state = predict_state(bk_state, state_buffer[-1][0], state_buffer[-1][1], "list")
                 tgt_x = tgt_state[0]
                 tgt_y = tgt_state[1]
-                tgt_v = np.sqrt(tgt_state[4]**2+tgt_state[5]**2)
+                tgt_v = 0.8#np.sqrt(tgt_state[4]**2+tgt_state[5]**2) #TODO, 1.6 is the ave speed
                 tgt_yaw = tgt_state[3]
                 start = datetime.datetime.now()
 
@@ -850,41 +860,13 @@ def do_simulation(initial_state):
                 X_ref[2,1] = tgt_v
                 X_ref[3,1] = tgt_yaw
 
-                dref[0,0] = 0 #steering angle
+                dref[0,0] = 0 #steering angle reference
                 dref[0,1] = 0
-                print("ref", X_ref, X_int, dref)
                 oa, odelta, ox, oy, oyaw, ov = tubempcCVX.mpc(
                                             X_ref, X_int, dref, oa, odelta)
-                print("odelta size", X_ref.shape, dref.shape)#, odelta.shape)
                 if odelta is not None:
                     di, ai = odelta[0], oa[0]
-                #####################
-                
-                ############### for old tube mpc 
-                # X_int = np.array(
-                #         [
-                #             [state.x],
-                #             [state.y],
-                #             [state.v],
-                #             [state.yaw]
-                #           ]
-                #      )
-                # X_ref = np.zeros((2, 4, 1))
-                # X_ref[0,0,0] = tgt_x
-                # X_ref[0,1,0] = tgt_y
-                # X_ref[0,2,0] = tgt_v
-                # X_ref[0,3,0] = tgt_yaw
-
-                # X_ref[1,0,0] = tgt_x
-                # X_ref[1,1,0] = tgt_y
-                # X_ref[1,2,0] = tgt_v
-                # X_ref[1,3,0] = tgt_yaw
-                # ai, di = tubempc.mpc(X_int, X_ref)
-                # print("int-ref", X_int, X_ref)
-                ########################
-
-                
-                
+                #####################                
                 proposed_action[0] = state.v+ai
                 proposed_action[1] = di
 

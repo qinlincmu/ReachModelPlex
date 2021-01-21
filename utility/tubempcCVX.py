@@ -8,12 +8,13 @@ import numpy as np
 #from gurobipy import GRB
 from polytope_2_7 import Polytope
 import scipy.linalg as sp_linalg
+import constant
 
 np.set_printoptions(threshold=np.inf, precision=5, suppress=True)
 
-T = 1
+T = 1 #prediction horizon
 MAX_ITER = 1
-DU_TH = 0.1  # iteration finish param
+DT = constant.DT
 
 NX = 4  # x = [x, y, v, yaw]
 NU = 2  # u = [accel, steer]
@@ -23,15 +24,16 @@ NU = 2  # u = [accel, steer]
 # Q = np.diag([100.0, 100.0, 1.0, 100.0]) # state cost matrix
 
 R = np.diag([1, 1])#np.diag([0.01, 0.01])  # input cost matrix
-Rd = np.diag([0.01, 0.01])  # input difference cost matrix
-Q = np.diag([100.0, 100.0, 0.5, 100])#np.diag([100.0, 100.0, 1.0, 100.0])#np.diag([1.0, 1.0, 0.5, 0.5])  # state cost matrix
+Rd = np.diag([1, 0.01])  # input difference cost matrix
+Q = np.diag([10.0, 10.0, 0.5, 10])#np.diag([100.0, 100.0, 1.0, 100.0])#np.diag([1.0, 1.0, 0.5, 0.5])  # state cost matrix
+#Q = np.diag([10.0, 10.0, 0.1, 100])
 Qf = Q  # state final matrix
 
-MAX_STEER = np.deg2rad(90.0)  # maximum steering angle [rad]
-MAX_DSTEER = np.deg2rad(30.0)  # maximum steering speed [rad/s]
-MAX_SPEED = 2#55.0 / 3.6  # maximum speed [m/s]
+MAX_STEER = np.deg2rad(60.0)  # maximum steering angle [rad]
+MAX_DSTEER = np.deg2rad(45.0)  # maximum steering speed [rad/s]
+MAX_SPEED = 1.6#55.0 / 3.6  # maximum speed [m/s]
 MIN_SPEED = 0.1#-20.0 / 3.6  # minimum speed [m/s]
-MAX_ACCEL = 2.0  # maximum accel [m/ss]
+MAX_ACCEL = 1.0  # maximum accel [m/ss]
 
 # Disturbance
 
@@ -73,7 +75,6 @@ Uc = Polytope(np.array([[2, 6.07],
 
 
 
-DT = 0.1
 
 # Vehicle parameters
 WB = 0.257 # Wheel base [m]
@@ -192,8 +193,8 @@ def linear_mpc_control_robust(xref, xbar, x0, dref):
             Xc_robust = Xc_robust - Z
             Uc_robust = Uc_robust - orig_Z.mult(K)
             print("robust set obtained")
-            print("xc robust: ", Xc_robust.A, Xc_robust.b, Xc_robust.A.shape, Xc_robust.b.shape)
-            print("uc robust: ", Uc_robust.A, Uc_robust.b, Uc_robust.A.shape, Uc_robust.b.shape)
+            #print("xc robust: ", Xc_robust.A, Xc_robust.b, Xc_robust.A.shape, Xc_robust.b.shape)
+            #print("uc robust: ", Uc_robust.A, Uc_robust.b, Uc_robust.A.shape, Uc_robust.b.shape)
         except:
             print("can not get robust set")
             return None, None, None, None, None, None
@@ -301,8 +302,8 @@ def mpc(xref, x0, dref, oa, odelta):
         od = [0.0] * T
 
     xbar = predict_motion(x0, oa, od, xref)
-    #oa, od, ox, oy, oyaw, ov = linear_mpc_control(xref, xbar, x0, dref)
-    oa, od, ox, oy, oyaw, ov = linear_mpc_control_robust(xref, xbar, x0, dref)
+    oa, od, ox, oy, oyaw, ov = linear_mpc_control(xref, xbar, x0, dref)
+    #oa, od, ox, oy, oyaw, ov = linear_mpc_control_robust(xref, xbar, x0, dref)
     # for i in range(MAX_ITER): #iterative version of mpc, due to real-time requirement, we don't use it
     #     xbar = predict_motion(x0, oa, od, xref)
     #     poa, pod = oa[:], od[:]

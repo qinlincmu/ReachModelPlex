@@ -6,13 +6,14 @@ using namespace std;
 
 int main(int argc, char *argv[])
 {
-	unsigned int numVars = 6;
+	unsigned int numVars = 7;
 
 	int x_id = stateVars.declareVar("x");
 	int y_id = stateVars.declareVar("y");
 	int psi_id = stateVars.declareVar("psi");
 	int delta_id = stateVars.declareVar("delta");
 	int v_id = stateVars.declareVar("v");
+        int a_id = stateVars.declareVar("a");
 	int t_id = stateVars.declareVar("t");
 
         double x_0_min = atof(argv[1]);
@@ -25,10 +26,12 @@ int main(int argc, char *argv[])
         double delta_0_max = atof(argv[8]);
         double v_0_min = atof(argv[9]);
         double v_0_max = atof(argv[10]);
-        double horizon = atof(argv[11]);
-        double stepsize = atof(argv[12]);
+        double a_0_min = atof(argv[11]);
+        double a_0_max = atof(argv[12]);
+        double horizon = atof(argv[13]);
+        double stepsize = atof(argv[14]);
 
-        std::string L = argv[13];
+        std::string L = argv[15];
 
         
 
@@ -39,7 +42,8 @@ int main(int argc, char *argv[])
 	Expression_AST<Real> ode_expression_y("v * sin(psi)");
 	Expression_AST<Real> ode_expression_psi("v * sin(delta)/"+L+"*cos(delta)");
 	Expression_AST<Real> ode_expression_delta("0");
-	Expression_AST<Real> ode_expression_v("0");
+	Expression_AST<Real> ode_expression_v("a");
+        Expression_AST<Real> ode_expression_a("0");
 	Expression_AST<Real> ode_expression_t("1");
 
 
@@ -50,6 +54,7 @@ int main(int argc, char *argv[])
 	ode_rhs[psi_id] = ode_expression_psi;
 	ode_rhs[delta_id] = ode_expression_delta;
 	ode_rhs[v_id] = ode_expression_v;
+        ode_rhs[a_id] = ode_expression_a;
 	ode_rhs[t_id] = ode_expression_t;
 
 
@@ -91,7 +96,7 @@ int main(int argc, char *argv[])
 	//Interval init_x(-0.01, 0.01), init_y(-0.01, 0.01), init_psi(-0.01, 0.01),
 	//		init_beta(-0.00466938241262, 0.00466938241262), init_v(-0.01, 0.01), init_t;
 	Interval init_x(x_0_min, x_0_max), init_y(y_0_min, y_0_max), init_psi(psi_0_min, psi_0_max),
-			init_delta(delta_0_min, delta_0_max), init_v(v_0_min, v_0_max), init_t;
+			init_delta(delta_0_min, delta_0_max), init_v(v_0_min, v_0_max), init_a(a_0_min, a_0_max), init_t;
 
 	vector<Interval> initial_box(numVars);
 	initial_box[x_id] = init_x;
@@ -99,6 +104,7 @@ int main(int argc, char *argv[])
 	initial_box[psi_id] = init_psi;
 	initial_box[delta_id] = init_delta;
 	initial_box[v_id] = init_v;
+        initial_box[a_id] = init_a;
 	initial_box[t_id] = init_t;
 
 	Flowpipe initialSet(initial_box);
