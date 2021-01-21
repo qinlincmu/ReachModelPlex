@@ -13,11 +13,18 @@ Project of integrating reachability and ModelPlex Monitor
 
     mpmath==1.1.0
 
-    pyinterval==1.2.1.dev0
+    pyinterval==1.2.0
 
     pycddlib==2.1.2
 
     cvxpy==1.1.7
+
+    Pillow==7.2.0
+
+    future-fstrings==1.2.0
+
+    gif==3.0.0
+
 
 ## set up reachability tool
     - put "flowstar" file and model file (nonlinear_without_beta) file in the same level of directory
@@ -83,6 +90,8 @@ The double-side red track is the safety boudary used by reachability analysis. A
     -15: invalid tube (goal not ahead of car)
     
     -16: invalid steering (steering not in direction of goal)
+
+Users can choose to use a dynamic model considering a linear tire model or a kinamatic model. Please refer to utility/constant for different settings. Dynamic model examples can be seen here: 1) without fallback control https://www.youtube.com/watch?v=90w0Na-vdBo&list=PLCkHY0TE8CilEE_Xzf0xhDkSVDQpH3Skm&index=4 2) with fallback control https://www.youtube.com/watch?v=AZ_8B1bsnO4&list=PLCkHY0TE8CilEE_Xzf0xhDkSVDQpH3Skm&index=5
     
 ## extension to real robot systems (e.g. ROS)
 Vehicle's state and waypoints need to retrive from ros topics. The relaxed boudary for reachability can be road curb from perception layer. Users can modify the intersection of reachable set and unsafe set if needed.
