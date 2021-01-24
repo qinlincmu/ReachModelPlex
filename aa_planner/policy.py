@@ -67,7 +67,7 @@ class Policy(object):
 
     def get_action(self, state):
         """
-        Choose between following a circular or straight trajectory,
+        For old monitor. Choose between following a circular or straight trajectory,
         and use trained models for these trajectory types to
         get an action (desired speed, steering angle) to control
         the car.
@@ -103,6 +103,56 @@ class Policy(object):
             curvature = 0
 
         return self._scaled_action(action), waypoint, curvature
+
+    def get_action1(self, state):
+        """
+        For old monitor. Choose between following a circular or straight trajectory,
+        and use trained models for these trajectory types to
+        get an action (desired speed, steering angle) to control
+        the car.
+        """
+        if self._planner_mode == "straight":
+            action = self._get_action_straight(state)
+            waypoint = [0,0]
+            curvature = 0
+            return self._scaled_action(action), waypoint, curvature
+        elif self._planner_mode == "circle":
+            action = self._get_action_circle(state)
+            waypoint = [0,0]
+            curvature = 0
+            return self._scaled_action(action), waypoint, curvature
+
+        # Check if state at waypoint and if so, switch trajectory type
+        # for rounded_square
+        if self._state_at_waypoint(state):
+            if not self._on_circle:
+                self._param_num = (self._param_num + 1) % 4
+            self._on_circle = not self._on_circle
+            self._waypoint_num = (self._waypoint_num + 1) % 8
+        if self._on_circle:
+            action = self._get_action_circle(state)
+        else:
+            action = self._get_action_straight(state)
+
+        waypoint = self._waypoints[self._waypoint_num][:2]
+        dict_waypont_heading = {
+        (0, 0): 0,
+        (1, 0): 0,
+        (2, 1): np.pi/2,
+        (2, 2): np.pi/2,
+        (1, 3): np.pi,
+        (0, 3): np.pi,
+        (-1, 2): -np.pi/2,
+        (-1, 1): -np.pi/2 
+        }
+        # Odd waypoints are reached via straight lines, even waypoints
+        # are reached via circles
+        if self._waypoint_num % 2 == 0:
+            curvature = 1
+        else:
+            curvature = 0
+
+        return self._scaled_action(action), waypoint, curvature, dict_waypont_heading[tuple(waypoint)]
 
 
     def _scaled_action(self, action):

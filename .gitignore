@@ -1,0 +1,16 @@
+*.pyc
+*.swp
+utility/__pycache__
+*.o
+flowstar/libflowstar.a
+flowstar/flowstar
+flowstar/modelParser.tab.c
+flowstar/modelParser.tab.h
+flowstar/modelParser.output
+flowstar/lex.yy.c
+nonlinear_without_beta/RC_bicycle
+linear_tire/RC_bicycle
+*.png
+*.gif
+*.txt
+*.mp4

@@ -50,6 +50,8 @@ horizon_b = constant.horizon_b
 inject_bad_control = constant.inject_bad_control
 fallback = constant.fallback
 
+rmin = 0.5 #in RV's ROS, TODO
+
 class State:
     """
     vehicle state class
@@ -403,16 +405,13 @@ def plot(t, wp_x, wp_y, wp_k, state, clock, di, current_state, veri_para, x_segs
     ax6.set_ylabel('Y-axis')
     ax6.set_zlabel('YAW-axis')
 
-    # ax6 = fig.add_subplot(427)
-    # ax6.set_title("xg")
-    # ax6.plot(t, xg_list, "xr")
-    # ax7 = fig.add_subplot(428)
-    # ax7.set_title("yg")
-    # ax7.plot(t, yg_list, "xr")
 def sample_control(monitor, current_state, state_rec, proposed_action, waypoint, curr, next, time, plantParamsNext, params, plantnext, post_pre, clock, option):
-    delta_s = 0.3
+    """
+        Function: sampling approach for old monitor
+    """
+    delta_s = 0.6
     v_s = 0.0
-    v_i = proposed_action[0] #not sample on velocity
+    v_i = proposed_action[0]
     pos_action = []
     pos_state = []
     pos_x = []
@@ -490,6 +489,111 @@ def sample_control(monitor, current_state, state_rec, proposed_action, waypoint,
         mid_yawdot = 0.5*(max(yawdot)+min(yawdot))
         return pos_action[ind], [mid_x, mid_y, 0, mid_yaw, mid_vx, mid_vy, mid_yawdot], mid_yaw, mid_y, mid_yaw
     return pos_action[ind], pos_state[ind], pos_x, pos_y, pos_yaw
+def sample_control1(monitor, wp_heading, current_state, state_rec, proposed_action, waypoint, curr, next, params, clock, option):
+    """
+        Function: sampling approach for new monitor
+    """
+    delta_s = 0.6
+    v_s = 0.0
+    v_i = proposed_action[0]
+    pos_action = []
+    pos_state = []
+    pos_x = []
+    pos_y = []
+    pos_yaw = []
+    vx = []
+    vy = []
+    yawdot = []
+
+    if v_s == 0:
+        v_container = [proposed_action[0]]
+    else:
+        v_container = arange(proposed_action[0]-v_s, proposed_action[0]+v_s, 0.1)
+    start = datetime.datetime.now()
+    for delta_i in arange(proposed_action[1]-delta_s, proposed_action[1]+delta_s, 0.01):
+        for v_i in v_container:
+            next_state = predict_state(state_rec, v_i, delta_i, "list")
+            next_waypoint = [waypoint[0], waypoint[1], compute_curvature(delta_i)]
+            
+            x0 = [next_state[0], next_state[1], next_state[3], next_state[4], next_state[5], next_state[6]]
+            new_state = modelplex.rotate_state(modelplex.translate_state(x0, (-waypoint[0], -waypoint[1])), -wp_heading)
+            x_new, y_new, yaw_new, vx_new, vy_new, yawdot_new = new_state[0:6]
+            c = rmin * np.cos(yaw_new)
+            s = rmin * np.sin(yaw_new)
+            rx = y_new + c
+            lx = y_new - c
+            ry = x_new - s
+            ly = x_new + s
+            
+            curr.v = v_i
+            curr.curv = compute_curvature(proposed_action[1])
+            curr.lx = lx
+            curr.ly = ly
+            curr.rx = rx
+            curr.ry = ry
+            curr.t = 0
+
+            next.v = curr.v
+            next.curv = curr.curv
+            next.lx = curr.lx
+            next.ly = curr.ly
+            next.rx = curr.rx
+            next.ry = curr.ry
+            next.t = 0 ##TODO
+
+            ctrl_monitor_verdict = monitor.boundaryDist(curr[0], next[0], params)
+            
+            ctrl_verdict_value = float(ctrl_monitor_verdict.val)
+            ctrl_verdict_id = float(ctrl_monitor_verdict.id)
+
+            if float(ctrl_verdict_value) > 0:
+                ctrl_verdict_value = 1.0 #for better visualization
+            else:
+                ctrl_verdict_value, ctrl_verdict_id = check_verdict(state_rec[0], state_rec[1], waypoint[0], waypoint[1], ctrl_verdict_value, ctrl_verdict_id, clock)
+
+            if ctrl_verdict_value >0:
+                pos_action.append([v_i, delta_i])
+                pos_state.append(next_state)
+                pos_x.append(next_state[0])
+                pos_y.append(next_state[1])
+                pos_yaw.append(next_state[3])
+                vx.append(next_state[3])
+                vy.append(next_state[4])
+                yawdot.append(next_state[5])
+    end = datetime.datetime.now()
+    dt = (end-start).total_seconds()*1000
+    dis = 1000
+    print("sampling runtime: %5.2f ms\n" %dt)
+    if len(pos_action) == 0:
+        print('clock: %5.2f warning! No fallback \n' %(clock))
+        x_r, y_r, yaw_r = verification.get_closet_ref(current_state[0], current_state[1], current_state[3], tuple(waypoint))
+        print(current_state, x_r, y_r, yaw_r)
+        return proposed_action, [x_r, y_r, 0, yaw_r, current_state[4], current_state[5], current_state[6]], x_r, y_r, yaw_r
+    else:
+        print("clock: %5.2f found %d recovery states\n" %(clock, len(pos_action)))
+    for i in range(len(pos_action)):
+        if abs(proposed_action[1]-pos_action[i][1]) <= dis:
+            dis = abs(proposed_action[1]-pos_action[i][1])
+            ind = i
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(pos_x, pos_y, pos_yaw, c = 'b', marker='o')
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel('yaw')
+    ax.set_title("Recovery states sampled from ModelPlex monitor")
+
+    fig.savefig(str(clock)+'.png') #save figure for recovery states
+    if option == "robust":
+        mid_x = 0.5*(max(pos_x)+min(pos_x))
+        mid_y = 0.5*(max(pos_y)+min(pos_y))
+        mid_yaw = 0.5*(max(pos_yaw)+min(pos_yaw))
+        mid_vx = 0.5*(max(vx)+min(vx))
+        mid_vy = 0.5*(max(vy)+min(vy))
+        mid_yawdot = 0.5*(max(yawdot)+min(yawdot))
+        return pos_action[ind], [mid_x, mid_y, 0, mid_yaw, mid_vx, mid_vy, mid_yawdot], mid_yaw, mid_y, mid_yaw
+    return pos_action[ind], pos_state[ind], pos_x, pos_y, pos_yaw
 def check_verdict(x, y, waypoint_x, waypoint_y, value, id, clock):
     """
         Function: regulate verdict value, when the vehicle's position is very close to the waypoint, 
@@ -534,65 +638,33 @@ def do_simulation(initial_state):
     pl = Policy(planner_mode="rounded_square")#straight, rounded_square, circle
 
     ffi = FFI()
-    monitor = ffi.dlopen(os.getcwd()+"/utility/curvature_monitor.so")
+    monitor = ffi.dlopen(os.getcwd()+"/utility/heading_monitor.so")
     ffi.cdef("""
-        typedef struct plantparameters {
-            long double A;
-            long double B;
-            long double T;
-            long double a;
-            long double eps;
-            long double k;
-            long double vh;
-            long double vl;
-        } plantparameters;
-
-        typedef struct plantstate {
-            long double t;
-            long double t_0;
-            long double v;
-            long double v_0;
-            long double xg;
-            long double xg_0;
-            long double yg;
-            long double yg_0;
-        } plantstate;
-
         typedef struct parameters {
-            long double A;
-            long double B;
-            long double T;
-            long double eps;
+            long double dt;
+            long double ep;
+            long double maxCurv;
+            long double maxV;
         } parameters;
 
         typedef struct state {
-            long double a;
-            long double k;
-            long double t;
             long double v;
-            long double vh;
-            long double vl;
-            long double xg;
-            long double yg;
+            long double curv;
+            long double lx;
+            long double ly;
+            long double rx;
+            long double ry;
+            long double t;
         } state;
 
         typedef struct input input;
         typedef struct verdict { int id; long double val; } verdict;
-        verdict plantBoundaryDist(plantstate pre, plantstate curr, const plantparameters* const params);
         verdict boundaryDist(state pre, state curr, const parameters* const params);
     """)
-
-    plantParams = ffi.new("struct plantparameters*")
-    plantParamsNext = ffi.new("struct plantparameters*")
     params = ffi.new("struct parameters*")
-    plantpre = ffi.new("struct plantstate*")
-    plantcurr = ffi.new("struct plantstate*")
-    plantnext = ffi.new("struct plantstate*")
-    pre = ffi.new("struct state*")
     curr = ffi.new("struct state*")
-    next = ffi.new("struct state*") #future state from prediction
+    next = ffi.new("struct state*") #future state from model-based prediction
     post = ffi.new("struct state*") #future state for keymera approach
-    post_pre = ffi.new("struct state*") #future state for keymera approach adding model-based prediction of state
 
 
     last_state_timestamp = 1
@@ -610,29 +682,19 @@ def do_simulation(initial_state):
     ctrl_verdict_value = 0
 
     ###############initialization############# 
-    params.A = constant.MAX_MOTOR_ACCEL
-    params.B = constant.MAX_MOTOR_ACCEL
-    params.T = constant.T_CYCLE_TIME
-    params.eps = 0.5
 
-    curr.a = 0.0
-    curr.k = 0.0
-    curr.t = 0.0
+    params.dt = constant.DT #?? TODO
+    params.ep = 0.1#0.4
+    params.maxCurv = 10#0.2
+    params.maxV = 6 #TODO
+
     curr.v = 0.0
-    curr.vh = 10.0
-    curr.vl = 0.0
-    curr.xg = 0.0
-    curr.yg = 0.0
-
-    plantcurr.t = 0.0
-    plantcurr.t_0 = 0.0
-    plantcurr.v = 0.0
-    plantcurr.v_0 = 0.0
-    plantcurr.xg = 0.0
-    plantcurr.xg_0 = 0.0
-    plantcurr.yg = 0.0
-    plantcurr.yg_0 = 0.0
-        
+    curr.curv = 0.0
+    curr.lx = 0.0
+    curr.ly = 0.0
+    curr.rx = 0.0
+    curr.ry = 0.0
+    curr.t = 0.0        
 
 
     counter_timeout = 0
@@ -671,41 +733,26 @@ def do_simulation(initial_state):
         current_state_timestamp = clock
         x0 = [state.x, state.y, state.yaw, state.vx, state.vy, state.yaw_dot]  # current state
 
-        action, waypoint, curvature = pl.get_action(x0) #get from aa_planner, [velocity, angle]
-
+        action, waypoint, curvature, wp_heading = pl.get_action1(x0) #get from aa_planner, [velocity, angle]
         current_state = [state.x, state.y, 0, state.yaw, state.vx, state.vy, state.yaw_dot] #self.state
-        
+        new_state = modelplex.rotate_state(modelplex.translate_state(x0, (-waypoint[0], -waypoint[1])), -wp_heading)
+        x_new, y_new, yaw_new, vx_new, vy_new, yawdot_new = new_state[0:6]
+
+        c = rmin * np.cos(yaw_new)
+        s = rmin * np.sin(yaw_new)
+        rx = y_new + c
+        lx = y_new - c
+        ry = x_new - s
+        ly = x_new + s
         proposed_action = action[:]
         current_waypoint = [waypoint[0], waypoint[1], curvature]
+
+
         data_f.write(str(state.x)+" "+str(state.y)+" "+str(0)+" "+str(state.yaw)+" "+str(state.vx)+" "+str(state.vy)+" "+str(state.yaw_dot)+" ")
         data_f.write(str(current_waypoint[0])+" "+str(current_waypoint[1])+" "+str(current_waypoint[2])+" ")
         data_f.write(str(proposed_action[0])+" "+str(proposed_action[1]))
         data_f.write("\n")
-        #####################modelplex verification#################
-        pre.a = float(curr.a)
-        pre.k = float(curr.k)
-        pre.t = float(curr.t)
-        pre.v = float(curr.v)
-        pre.vh = float(curr.vh)
-        pre.vl = float(curr.vl)
-        pre.xg = float(curr.xg)
-        pre.yg = float(curr.yg)
-        
-        plantpre.t = float(plantcurr.t)
-        plantpre.t_0 = float(plantcurr.t_0)
-        plantpre.v = float(plantcurr.v)
-        plantpre.v_0 = float(plantcurr.v_0)
-        plantpre.xg = float(plantcurr.xg)
-        plantpre.xg_0 = float(plantcurr.xg_0)
-        plantpre.yg = float(plantcurr.yg)
-        plantpre.yg_0 = float(plantcurr.yg_0)
 
-        time = DT
-        curr = modelplex.currConvert(curr, pre, current_state, current_waypoint, time)
-        
-        plantParams = modelplex.plantParamsConvert(plantParams, params, curr)
-        plantcurr = modelplex.plantcurrConvert(plantcurr, pre, curr)
-        
 
         ########################simulation of bad control
         if inject_bad_control == True:
@@ -719,43 +766,31 @@ def do_simulation(initial_state):
                 print("action got from CPO: (%5.2f, %5.2f)" %(action[0], action[1]))
                 print("x-y position: (%5.2f, %5.2f); waypoint: (%5.2f, %5.2f)\n" %(current_state[0], current_state[1], current_waypoint[0], current_waypoint[1]))
                 cnt += 1
-        ################################
-        #next_state = predict_state(state, proposed_action[0], proposed_action[1], "class") # do we need to predict the next state based on steering angle?
-        next_state = current_state
-        #next_waypoint = current_waypoint #less sensitive to bad steering
-        next_waypoint = [waypoint[0], waypoint[1], compute_curvature(proposed_action[1])] #modify the waypoint's curvature, more sensitive to bad steering
-        next = modelplex.currConvert(next, curr, next_state, next_waypoint, time)
-        plantParamsNext = modelplex.plantParamsConvert(plantParamsNext, params, next)
-        plantnext = modelplex.plantcurrConvert(plantnext, curr, next)
-        
-        ##################state verification using monitor##################
-        plant_verdict = monitor.plantBoundaryDist(plantpre[0], plantcurr[0], plantParams)
-        plant_verdict_value = float(plant_verdict.val)
-        plant_verdict_id = int(plant_verdict.id)
-        if plant_verdict_value > 0:
-            plant_verdict_value = 1.0
-        else:
-            plant_verdict_value, plant_verdict_id = check_verdict(state.x, state.y, current_waypoint[0], current_waypoint[1], plant_verdict_value, plant_verdict_id, clock)
-        #####################################################################
+        # ##################control verification using monitor#################
+        curr.v = float(post.v)
+        curr.curv = float(post.curv)
+        curr.t = float(post.t)
 
-        ##################control verification using monitor#################
-        post = modelplex.postConvert(post, curr, proposed_action)
-        post_pre = modelplex.postConvert(post_pre, next, proposed_action)
-        
-        #ctrl_monitor_verdict = monitor.boundaryDist(curr[0], post[0], params) #original ModelPlex control checking
-        ctrl_monitor_verdict = monitor.boundaryDist(next[0], post_pre[0], params)
+        post.v = proposed_action[0]#np.sqrt(state.vx**2+state.vy**2)
+        post.curv = compute_curvature(proposed_action[1])#curvature
+
+        post.lx = lx
+        post.ly = ly
+        post.rx = rx
+        post.ry = ry
+        post.t = 0 ##TODO
+
+        curr.lx = float(post.lx)
+        curr.ly = float(post.ly)
+        curr.rx = float(post.rx)
+        curr.ry = float(post.ry)
+
+        ctrl_monitor_verdict = monitor.boundaryDist(curr[0], post[0], params)
         ctrl_verdict_value = float(ctrl_monitor_verdict.val)
         ctrl_verdict_id = float(ctrl_monitor_verdict.id)
 
-        if float(ctrl_verdict_value) > 0:
-            ctrl_verdict_value = 1.0 #for better visualization
-        else:
-            ctrl_verdict_value, ctrl_verdict_id = check_verdict(state.x, state.y, current_waypoint[0], current_waypoint[1], ctrl_verdict_value, ctrl_verdict_id, clock)
-        ###################################################################
 
-        last_state_timestamp = current_state_timestamp
-
-        ##################control verification using reachability##############
+        # ##################control verification using reachability##############
         speed_bound = 0.01
         delta_bound = 0.01
         uncertainty_control = [speed_bound, delta_bound]
@@ -787,7 +822,7 @@ def do_simulation(initial_state):
                           last_proposed_action, waypoint[0], waypoint[1], last2_state_uc, uncertainty_control, flowstar_stepsize, vehicle.L, vehicle.width, full_brake=True)
         end = datetime.datetime.now()
         dt = (end-start).total_seconds()*1000
-        #print("Reachability runtime %5.2f" %dt)
+        print("Reachability runtime %5.2f" %dt)
         x_segs = []
         y_segs = []
         for i in range(len(x_bound)):
@@ -814,21 +849,21 @@ def do_simulation(initial_state):
             reach_verdict_value = 1
         
         rec_x, rec_y, rec_yaw = [], [], []
-        if ctrl_verdict_value < 0 or plant_verdict_value <0:
+        if ctrl_verdict_value < 0:
             print("DETECT: x-y (%5.2f, %5.2f), waypoint (%5.2f, %5.2f)" %(state.x, state.y, current_waypoint[0], current_waypoint[1]))
-            print ("clock: %5.2f, reach verdict %d, control (%5.2f, %d),  plant (%5.2f, %d)\n" %(clock, reach_verdict_value, ctrl_verdict_value, ctrl_verdict_id, plant_verdict_value, plant_verdict_id))
+            print ("clock: %5.2f, reach verdict %d, control (%5.2f, %d) \n" %(clock, reach_verdict_value, ctrl_verdict_value, ctrl_verdict_id))
         if fallback == True:
             option = "robust"#"nonrobust"#"robust"#
             if pre_ctrl_verdict_value > 0 and ctrl_verdict_value < 0: #modelPlex violation just starts
-                op_control, op_state, rec_x, rec_y, rec_yaw = sample_control(monitor, current_state, current_state, prev_action, current_waypoint, curr, next, time, plantParamsNext, params, plantnext, post_pre, clock, option)
+                op_control, op_state, rec_x, rec_y, rec_yaw = sample_control1(monitor, wp_heading, current_state, current_state, prev_action, current_waypoint, curr, next, params, clock, option)
                 control_buffer.append(op_control)
                 state_buffer.append(op_state)
             if pre_ctrl_verdict_value<0 and ctrl_verdict_value < 0 and reach_verdict_value>0: #small modelPlex violation continues
-                op_control, op_state, rec_x, rec_y, rec_yaw = sample_control(monitor, current_state, state_buffer[-1], control_buffer[-1], current_waypoint, curr, next, time, plantParamsNext, params, plantnext, post_pre, clock, option)
+                op_control, op_state, rec_x, rec_y, rec_yaw = sample_control1(monitor, wp_heading, current_state, state_buffer[-1], control_buffer[-1], current_waypoint, curr, next, params, clock, option)
                 control_buffer.append(op_control)
                 state_buffer.append(op_state)
             if ctrl_verdict_value < 0 and reach_verdict_value<0: #large modelPlex violation
-                op_control, op_state, rec_x, rec_y, rec_yaw = sample_control(monitor, current_state, state_buffer[-1], control_buffer[-1], current_waypoint, curr, next, time, plantParamsNext, params, plantnext, post_pre, clock, option)
+                op_control, op_state, rec_x, rec_y, rec_yaw = sample_control1(monitor, wp_heading, current_state, state_buffer[-1], control_buffer[-1], current_waypoint, curr, next, params, clock, option)
                 control_buffer.append(op_control)
                 state_buffer.append(op_state)
 
@@ -837,7 +872,7 @@ def do_simulation(initial_state):
                 tgt_state = predict_state(bk_state, state_buffer[-1][0], state_buffer[-1][1], "list")
                 tgt_x = tgt_state[0]
                 tgt_y = tgt_state[1]
-                tgt_v = 0.8#np.sqrt(tgt_state[4]**2+tgt_state[5]**2) #TODO, 1.6 is the ave speed
+                tgt_v = 0.8#TODO
                 tgt_yaw = tgt_state[3]
                 start = datetime.datetime.now()
 
@@ -903,19 +938,15 @@ def do_simulation(initial_state):
         wp_y_list.append(waypoint[1])
         wp_cur_list.append(curvature)
         timestamp_list.append(start_sec+clock)
-        xg_list.append(curr.xg)
-        yg_list.append(curr.yg)
 
-        #vr_monitor_plant_list[0].append(1 if plant_verdict_value>0 else plant_verdict_value)
-        vr_monitor_plant_list[0].append(plant_verdict_value)
-        vr_monitor_plant_list[1].append(plant_verdict_id)
-        #vr_monitor_control_list[0].append(1 if ctrl_verdict_value>0 else ctrl_verdict_value)
         vr_monitor_control_list[0].append(ctrl_verdict_value)
         vr_monitor_control_list[1].append(ctrl_verdict_id)
         if save_gif:
             frame = plot(t_list, wp_x_list, wp_y_list, wp_cur_list, state, clock, di, current_state, veri_para, x_segs, y_segs, vr_reach_segs, reach_verdict_value_all,
                         mode, vr_monitor_plant_list, vr_monitor_control_list, xg_list, yg_list, rec_x, rec_y, rec_yaw)
             frames.append(frame)
+
+
         #state = update_state(state, ai, di)
         state = update_state_slip(state, proposed_action[0], proposed_action[1])
         #state = update_state_ffast(state, proposed_action[0], proposed_action[1])
@@ -979,8 +1010,6 @@ def main():
     #plt.title("Steering angle proposed by NN controller")
     plt.legend()
 
-    #print(yaw)
-    #print(y)
     #plt.show()
 
 
